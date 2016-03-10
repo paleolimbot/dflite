@@ -53,6 +53,11 @@ class _DFRow(dict):
         for key in self._keys:
             yield self[key]
 
+    def _repr_html_(self):
+        title = "".join(["<td><strong>%s</strong></td>" % key for key in self._keys])
+        vals = "".join(["<td>%s</td>" % self[key] for key in self._keys])
+        return "<table><tr>%s</tr><tr>%s</tr></table>" % (title, vals)
+
     def keys(self):
         return self._keys
 
@@ -67,8 +72,10 @@ class _Iloc(object):
         self.df = df
 
     def __getitem__(self, item):
-        if type(item) != tuple:
+        if type(item) == int:
             return self.df._row(item)
+        elif type(item) != tuple:
+            return self.df._subset(item, self.df.columns)
         elif len(item) == 2 and type(item[0]) == int and type(item[1]) == int:
             return self.df[item[1]][item[0]]  # single value
         else:
@@ -113,7 +120,7 @@ class DataFrame(object):
         for key, value in kwargs.items():
             self.__setitem__(key, value)
 
-        self.iloc = _Iloc(self)
+        self.loc = self.iloc = _Iloc(self)
 
     @staticmethod
     def __default_arg_name(index):
@@ -130,12 +137,6 @@ class DataFrame(object):
         :return: The number of columns. Probably shouldn't use this as it isn't a part of pandas.DataFrame
         """
         return len(self.__keynames)
-
-    def columns(self):
-        """
-        :return: The columns. Probably shouldn't use this as it isn't a part of pandas.DataFrame
-        """
-        return np.array(self.__keynames)
 
     def _subset(self, rows, cols):
         if type(cols) == slice:
@@ -210,6 +211,8 @@ class DataFrame(object):
         if self.__rows is None:
             self.__rows = len(value)
         else:
+            if _len(value) == 1:
+                value = np.repeat(value, self.__rows)
             if self.__rows != len(value) and check:
                 raise ValueError("Number of observations is not consistent (%s, %s) for arg %s" %
                                  (self.__rows, len(value), key))
@@ -218,7 +221,21 @@ class DataFrame(object):
         if key not in self.__keynames:
             self.__keynames.append(key)
 
+    def __setattr__(self, key, value):
+        if key == "columns":
+            if len(value) != len(self.__keynames):
+                raise ValueError("Dimension mismatch: cannot set names of more columns than exist.")
+            # rename columns
+            for oldcol, newcol in zip(list(self.__keynames), value):
+                if oldcol != newcol:
+                    self[newcol] = self[oldcol]
+                    del self[oldcol]
+        else:
+            super().__setattr__(key, value)
+
     def __getattr__(self, item):
+        if item == "columns":
+            return list(self.__keynames)
         if item in self.__keynames:
             key = self.__internal_key(item)
             if key is None:
@@ -292,10 +309,10 @@ class DataFrame(object):
         """
         Jupyter Notebook magic repr function.
         """
-        head = '<tr>%s</tr>\n' % ''.join(['<td><strong>%s</strong></td>' % c for c in self.__keynames])
+        head = '<tr><td></td>%s</tr>\n' % ''.join(['<td><strong>%s</strong></td>' % c for c in self.__keynames])
         rows = ['<td><strong>%d</strong></td>' % i + ''.join(['<td>%s</td>' % c for c in row])
                 for i, row in enumerate(self.itertuples(rownames=False, header=False))]
-        html = '<table>{}</table>'.format(head + '\n'.join(['<tr>%s</tr>' % row for i, row in rows]))
+        html = '<table>{}</table>'.format(head + '\n'.join(['<tr>%s</tr>' % row for row in rows]))
         return html
 
     def to_csv(self, writer, driver=None, mode="w"):
