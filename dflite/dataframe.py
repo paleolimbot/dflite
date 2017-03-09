@@ -1,21 +1,23 @@
 
+import itertools
+
 import numpy as np
 import csv
 import decimal
 
 
 def _len(obj):
-    if type(obj) in (list, tuple, np.ndarray, set):
-        return len(obj)
-    else:
+    if np.ndim(obj) == 0:
         return 1
+    else:
+        return len(obj)
 
 
 def _aslist(obj):
-    if type(obj) in (list, tuple, np.ndarray, set):
-        return obj
-    else:
+    if np.ndim(obj) == 0:
         return [obj, ]
+    else:
+        return obj
 
 
 def _asnumeric(obj):
@@ -32,6 +34,31 @@ def _asnumeric(obj):
         pass
 
     return obj
+
+
+class _GroupBy(object):
+
+    def __init__(self, df, groups):
+        if any(col not in df for col in groups):
+            raise ValueError("Grouping columns must all be in DataFrame")
+        self.df = df
+        self.groups = groups
+
+    def apply(self, fun):
+        results = [fun(piece) for piece in self._applyiter()]
+        return results
+
+    def _applyiter(self):
+        groupcols = self.groups
+        df = self.df
+
+        ids = [tuple(df.loc[i, groupcols]) for i in range(len(df))]
+        # sorting/determining unique values by string value
+        ids = sorted(enumerate(ids), key=lambda x: "".join([str(val) for val in x[1]]))
+
+        # groupby the tuples
+        for group in itertools.groupby(ids, key=lambda x: x[1]):
+            yield df._subset([x[0] for x in group[1]], cols=None, simplify=False)
 
 
 class _DFRow(dict):
@@ -138,18 +165,31 @@ class DataFrame(object):
         """
         return len(self.__keynames)
 
-    def _subset(self, rows, cols):
+    def _subset(self, rows, cols=None, simplify=True):
         if type(cols) == slice:
             icols = [self. __internal_key(col) for col in list(range(len(self.__keynames)))[cols]]
         elif type(cols) == int:
             icols = [self.__internal_key(cols), ]
+        elif cols is None:
+            icols = [self.__internal_key(col) for col in self.columns]
         else:
             icols = [self.__internal_key(col) for col in cols]
         if None in icols:
             raise KeyError("One of the following is not a valid column: %s" % (cols, ))
         if type(rows) == tuple:
             rows = list(rows)
-        return DataFrame(*[_aslist(self[col][rows]) for col in icols], columns=icols)
+        out = DataFrame(*[_aslist(self[col][rows]) for col in icols], columns=icols)
+        # if output has one row,
+        if simplify and (len(out) == 1):
+            row = out._row(0)
+            if len(icols) > 1 or type(cols) in (slice, tuple, list):
+                # return dfrow
+                return row
+            else:
+                return row[0]
+
+        else:
+            return out
 
     def _row(self, i):
         return _DFRow(self.__keynames, [self[col][i] for col in self])
@@ -280,6 +320,9 @@ class DataFrame(object):
                 raise KeyError("No such column: ", key)
             self.__dict__[key] = np.append(self[key], value)
         self.__rows += newrows
+
+    def groupby(self, by):
+        return _GroupBy(self, _aslist(by))
 
     def __bool__(self):
         return self.__rows is not None and self.__rows > 0

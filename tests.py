@@ -56,5 +56,17 @@ def test_dataframe():
     os.unlink("fish.tsv")
     os.unlink("fish.csv")
 
+def test_groupby():
+    a = df.DataFrame([1, 2, 3, 4], ["one", "two", "three", "four"], ["data1", "data2", "data3", "data4"])
+    a["idvar1"] = ["a", "b", "a", "b"]
+    a["idvar2"] = [1, 1, 1, 2]
+
+    print(a.groupby("idvar1").apply(lambda x: x))
+    print(a.groupby("idvar2").apply(lambda x: x))
+    print(a.groupby(("idvar1", "idvar2")).apply(lambda x: x))
+
+
+
 if __name__ == "__main__":
-    test_dataframe()
+    # test_dataframe()
+    test_groupby()
